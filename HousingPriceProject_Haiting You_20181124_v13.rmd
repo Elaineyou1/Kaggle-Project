@@ -1,0 +1,785 @@
+---
+title: "388_Project_House Prices_Haiting You"
+author: "Haiting You"
+date: "Nov 24th 2018"
+output:
+  html_notebook:
+    toc: yes
+  pdf_document:
+    toc: yes
+  html_document:
+    df_print: paged
+    toc: yes
+---
+#1.Introduction 
+##1.1.Background 
+This is a housing dataset with 79 explanatory variables describing (almost) every aspect of residential homes in Ames, Iowa. We want to use this dataset to predict the sales prices in dollars(SalePrice) for each house. 
+
+##1.2.Data Description 
+
+###1.2.1.Data Preparation 
+Loading the data from the train and test dataset, combining them into one dataset, with the purpose to keep them consistent in the following analysis.
+```{r}
+#load the data
+train<-read.csv("E:/Loyola/Fall 2018/STAT 388 001 Predictive Analytics/Project/houseprices/train.csv",header=TRUE)
+#head(train)
+train$group<-1
+test<-read.csv("E:/Loyola/Fall 2018/STAT 388 001 Predictive Analytics/Project/houseprices/test.csv",header=TRUE)
+#head(test)
+test$SalePrice<-0
+test$group<-2
+#combine the data to make sure the type of the data is consistant.
+house<-rbind(train,test)
+head(house)
+str(house)
+summary(house)
+```
+**From the summary, some types of the variables are wrong. Besides there are many NA values in both train dataset and test dataset.We need check them before modeling. **
+
+####a).Suitable type of variables problem  
+Some variables should be treated as factor. The rule of whether to be a factor is that "Is 2 twice as many as 1 here". So for number of rooms,such as the variables of BsmtFullBath and FullBath, 2 is definitely twice as many as 1, then we will not transfer them to factor. But for the rating, we should transfer to factor.
+
+```{r}
+#change to factor
+#2.MSSubClass: Identifies the type of dwelling involved in the sale. should be catergorical data
+#18.OverallQual:Rates the overall material and finish of the house(1-10)
+#19.OverallCond: Rates the overall condition of the house(1-10)
+#77.MoSold: Month Sold (MM),change to factor
+#78.YrSold: only 6 years
+vector1<-c(2,18,19,77,78)
+for (i in vector1) {
+ house[,i]<-as.factor(house[,i]) 
+}
+str(house[,vector1])
+```
+####b).NA problem: Not exsist rather than missing, change to NotExist or 0
+```{r}
+#change to NotExist
+#7.Alley:NA(No alley access), change to NotExist
+#31.BsmtQual: Evaluates the height of the basement,37 are NA(No Basement),change to NotExist
+#32.BsmtCond:37 are NA(No Basement),change to NotExist
+#33.BsmtExposure:No(No Exposure)  NA(38 are No Basement,but actually is 37 have no basement, one of them are missing),change to NotExist
+#34.BsmtFinType1: Rating of basement finished,37 of them are NA (No Basement),change to NotExist
+#36.BsmtFinType2: Rating of basement finished area NA(38 are No Basement,but actually is 37 have no basement, one of them are missing),change to NotExist
+#58.FireplaceQu: Fireplace quality, 690 NA(No Fireplace),change to NotExist
+#59.GarageType: Garage location, 81 NA(No Garage),change to NotExist
+#61.GarageFinish: 81 NA(No Garage),change to NotExist
+#64.GarageQual: Garage quality, 81 NA(No Garage),change to NotExist
+#65.GarageCond: Garage condition, 81 NA(No Garage),change to NotExist
+#73.PoolQC:NA(No Pool), 1453 NA,change to NotExist
+#74.Fence:NA(no Fence),1179NA, change to NotExist
+#75.MiscFeature: 1406NA, change to NotExist
+
+vector2<-c(7,31:34,36,58,59,61,64:65,73:75)
+for (i in vector2) {
+#check levels
+levels(house[,i])
+#add new factor level. i.e "NotExist" 
+house[,i] = factor(house[,i], levels=c(levels(house[,i]),"NotExist"))
+#convert all NA's to "NotExist"
+house[,i][is.na(house[,i])] ="NotExist"#house[is.na(house)] #find out all the missing value
+#check levels again
+#levels(house[,i])
+}
+summary(house[,vector2])
+```
+
+```{r}
+#change to 0 if there are none
+#27.MasVnrArea: 864 obs of the MasVnrType is none, so here 869 missing could change to 0
+#39.TotalBsmtSF: Total square feet of basement area,37 are NA(No Basement),change to 0 
+#63.GarageArea: 81 NA(No Garage),change to 0
+#76.MiscVal: $Value of miscellaneous feature, 1408 NA, but 2 of them are truely missing, change to 0
+#60.GarageYrBlt:  81 NA(No Garage),change to 0
+
+vector3<-c(27,39,60,63,76)
+for (i in vector3) {
+house[,i][is.na(house[,i])] =0
+}
+summary(house[,vector3])
+```
+
+###1.2.2.Missing value
+```{r}
+#find the missing columns
+NAcol <- which(colSums(is.na(house)) > 0)
+sort(colSums(sapply(house[NAcol], is.na)), decreasing = TRUE)
+
+#Visualization of the missing value
+# sort the rows
+#visdat::vis_miss(house, sort_miss = TRUE)
+# visualise the number of missings in each variable using naniar `gg_miss_var`
+#naniar::gg_miss_var(house)
+
+library(dplyr)
+missingvalue <- house%>%select(MSZoning,LotFrontage,Utilities,Exterior1st,Exterior2nd,MasVnrType,BsmtFinSF1,BsmtFinSF2,BsmtUnfSF,Electrical,BsmtFullBath,BsmtHalfBath,Functional,KitchenQual,GarageCars,SaleType)
+
+visdat::vis_miss(missingvalue, sort_miss = TRUE)
+# visualise the number of missings in each variable using naniar `gg_miss_var`
+naniar::gg_miss_var(missingvalue)
+
+# sort by columns
+extracat::visna(missingvalue, sort = "c")
+```
+**Conclusion: Only 0.2% of the data are missing, that is MSZoning,LotFrontage,Utilities,Exterior1st, Exterior2nd,MasVnrType, BsmtFinSF1,BsmtFinSF2,BsmtUnfSF,Electrical,BsmtFullBath,BsmtHalfBath,Functional,GarageCars,KitchenQual,SaleType.**  
+
+**For the missing value, we may impute the missing value: with the median value or the prediction from linear model(numerical data) or logistic model (categorical data).**
+```{r}
+#impute the mising data
+#replace the missing value with the median value,as they are only few missing value(continous variable)
+#35.BsmtFinSF1
+#37.BsmtFinSF2
+#38.BsmtUnfSF
+#48.BsmtFullBath
+#49.BsmtHalfBath
+#62.GarageCars
+vector4<-c(35,37,38,48,49,62)
+for (i in vector4){
+house[which(is.na(house[,i])),][,i]<-median(house[which(!is.na(house[,i])),][,i])#median(house$BsmtFinSF1[which(!is.na(house[,35]))])
+}
+
+#impute with most frequency levels
+#3.MSZoning
+#10.Utilities will drop this column
+#24.Exterior1st
+#25.Exterior2nd
+#26.MasVnrType
+#43.Electrical
+#54.KitchenQual
+#56.Functional
+#79.SaleType
+vector5<-c(3,24,25,26,43,54,56,79)
+for (i in vector5){
+df<-data.frame(table(house[,i]))
+house[which(is.na(house[,i])),][,i]<-df[which.max(df$Freq),]$Var1 
+}
+
+#replace the missing value of LotFrontage with the predicted value
+#4.LotFrontage
+library(rpart)
+Lot <- rpart(LotFrontage ~., data=house[!is.na(house$LotFrontage),], method="anova", na.action=na.omit) 
+lot_pred<- predict(Lot, house[is.na(house$LotFrontage),])
+house$LotFrontage[is.na(house$LotFrontage)]<-round(lot_pred,0)
+summary(house$LotFrontage)
+```
+
+```{r}
+summary(house)
+```
+**Utilities: only 1 obs is NoSeWa, while 2918 are AllPub, so we will drop this variable in the following analysis**
+
+```{r}
+#final dataset without tranformation
+#10.Utilities, drop this column
+house.comp<-house[,-10]
+train.comp<-house.comp%>%filter(group==1)%>%select(-group)#train dataset
+test.comp<-house.comp%>%filter(group==2)%>%select(-group)#test dataset
+```
+**Now we have a compelete dataset with 78 predictors.**
+
+check the missing data again
+```{r}
+#find the missing columns
+which(colSums(is.na(train.comp)) > 0)
+which(colSums(is.na(train.comp)) > 0)
+```
+
+###1.2.3.Data Visulization
+Find out the possible relationship between variables and response variables. 
+
+####1.2.3.1.Analysis the Response variable.
+```{r}
+library(ggplot2)
+#histogram with density curve
+p1<-ggplot(train.comp,aes(x=SalePrice)) +
+  geom_histogram(aes(y = ..density..,fill = ..count..),breaks = seq(0, max(train.comp$SalePrice), 20000),
+                  limits=c(0, max(train.comp$SalePrice)))+
+  stat_function(
+    fun = dnorm, 
+    args = list(mean = mean(train.comp$SalePrice, na.rm = TRUE), 
+                sd = sd(train.comp$SalePrice, na.rm = TRUE)), 
+    lwd = 1, 
+    col = 'red'
+    )+
+    ggtitle("Frequency histogram of Sale Price of Houses in Ames ")+
+    theme_bw()+
+    geom_vline(xintercept = median(train.comp$SalePrice), size = 1, colour = "#FF3721",
+                   linetype = "dashed")
+p1
+#standarized
+p2<-ggplot(train.comp,aes(x=log(SalePrice))) +
+  geom_histogram(aes(y = ..density..,fill = ..count..))+
+  stat_function(
+    fun = dnorm, 
+    args = list(mean = mean(log(train.comp$SalePrice), na.rm = TRUE), 
+                sd = sd(log(train.comp$SalePrice), na.rm = TRUE)), 
+    lwd = 1, 
+    col = 'red'
+    )+
+    ggtitle("Frequency histogram of log Sale Price of Houses in Ames ")+
+    theme_bw()+
+    geom_vline(xintercept = median(log(train.comp$SalePrice)), size = 1, colour = "#FF3721",
+                   linetype = "dashed")
+p2
+```
+**The log(SalePrice) should be better.**
+
+####1.2.4.2.Continuous variable 
+1.layout
+```{r}
+vector.layout.c<-which(colnames(train.comp)=="LotArea"|
+                        colnames(train.comp)=="GrLivArea"|
+                        colnames(train.comp)=="BsmtFullBath"|
+                        colnames(train.comp)=="BsmtHalfBath"|
+                        colnames(train.comp)=="FullBath"|
+                        colnames(train.comp)=="HalfBath"|
+                        colnames(train.comp)=="BedroomAbvGr"|
+                        colnames(train.comp)=="KitchenAbvGr"|
+                        colnames(train.comp)=="TotRmsAbvGrd"|
+                        colnames(train.comp)=="WoodDeckSF"|
+                        colnames(train.comp)=="OpenPorchSF"|
+                        colnames(train.comp)=="EnclosedPorch"|
+                        colnames(train.comp)=="X3SsnPorch"|
+                        colnames(train.comp)=="ScreenPorch"|
+                        colnames(train.comp)=="Fireplaces"|
+                        colnames(train.comp)=="GarageCars"|
+                        colnames(train.comp)=="PoolArea")
+
+#check the correlation for all the categorical variables between the time
+df.time<-data.frame(train.comp[,c(80,vector.layout.c)])
+df.time1 <-lapply(df.time,as.integer)#transform the categorical data into numeric
+df.time1<-as.data.frame(df.time1)
+corr.time <- round(cor(df.time1), 2)
+library(ggcorrplot)
+ggcorrplot(corr.time,method = "circle",lab=TRUE,tl.cex = 10,lab_size=2)
+```
+**The following predictors are important:5.LotArea,46.GrLivArea,56.Fireplaces,61.GarageCars, 66.WoodDeckSF,67.OpenPorchSF.**
+```{r}
+vector.layout.c1<- c(5,46,56,61,66,67)
+for (i in vector.layout.c1) {
+  p1 <-ggplot(data = train.comp, 
+              aes(x = train.comp[,i], y = SalePrice)) + 
+              geom_smooth() + geom_point() + 
+              labs(y = "SalePrice", x = colnames(train.comp)[i])
+  print(p1)
+}
+```
+
+
+2.location
+```{r}
+p1 <-ggplot(data = train.comp, 
+              aes(x = train.comp[,4], y = SalePrice)) + 
+              geom_smooth() + geom_point() + 
+              labs(y = "SalePrice", x = colnames(train.comp)[4])
+p1
+```
+3.quality
+```{r}
+vector.quality.c<-which(colnames(train.comp)=="MasVnrArea"|
+                        colnames(train.comp)=="BsmtFinSF1"|
+                        colnames(train.comp)=="BsmtFinSF2"|
+                        colnames(train.comp)=="BsmtUnfSF"|
+                        colnames(train.comp)=="LowQualFinSF"|
+                        colnames(train.comp)=="MiscVal")
+#check the correlation for all the categorical variables between the time
+df.time<-data.frame(train.comp[,c(80,vector.quality.c)])
+df.time1 <-lapply(df.time,as.integer)#transform the categorical data into numeric
+df.time1<-as.data.frame(df.time1)
+corr.time <- round(cor(df.time1), 2)
+library(ggcorrplot)
+ggcorrplot(corr.time,method = "circle",lab=TRUE)
+```
+```{r}
+vector.quality.c1<- c(26,34,37)
+for (i in vector.quality.c1) {
+  p1 <-ggplot(data = train.comp, 
+              aes(x = train.comp[,i], y = SalePrice)) + 
+              geom_smooth() + geom_point() + 
+              labs(y = "SalePrice", x = colnames(train.comp)[i])
+  print(p1)
+}
+```
+**26.MasVnrArea,34.BsmtFinSF1 and 37.BsmtUnfSF are important, but BsmtFinSF1 and BsmtUnfSF are highly correlated with TotalBsmtSF**
+
+4.size
+```{r}
+vector.size<-c(38,43,44,62)
+df.size<-data.frame(train.comp[,c(80,vector.size)])
+df.size1<-as.data.frame(df.size)
+corr.size <- round(cor(df.size1), 2)
+library(ggcorrplot)
+ggcorrplot(corr.size,method = "circle",lab=TRUE)
+```
+
+```{r}
+vector.size1<- c(38,62)
+for (i in vector.size1) {
+  p1 <-ggplot(data = train.comp, 
+              aes(x = train.comp[,i], y = SalePrice)) + 
+              geom_smooth() + geom_point() + 
+              labs(y = "SalePrice", x = colnames(train.comp)[i])
+  print(p1)
+}
+```
+**Conclusion:38.TotalBsmtSF and 62.GarageArea are important predictors,the other are highly correlated**
+
+5.time
+```{r}
+vector.time<-which(colnames(train.comp)=="YearBuilt"|
+                        colnames(train.comp)=="YearRemodAdd"|
+                        colnames(train.comp)=="GarageYrBlt")
+#check the correlation for all the categorical variables between the time
+df.time<-data.frame(train.comp[,c(80,vector.time)])
+df.time1 <-lapply(df.time,as.integer)#transform the categorical data into numeric
+df.time1<-as.data.frame(df.time1)
+corr.time <- round(cor(df.time1), 2)
+library(ggcorrplot)
+ggcorrplot(corr.time,method = "circle",lab=TRUE)
+```
+**Conclusion: 19.YearBuilt is important**
+```{r}
+vector.size1<-c(19)
+for (i in vector.size1) {
+  p1 <-ggplot(data = train.comp, 
+              aes(x = train.comp[,i], y = SalePrice)) + 
+              geom_smooth() + geom_point() + 
+              labs(y = "SalePrice", x = colnames(train.comp)[i])
+  print(p1)
+}
+```
+
+
+####1.2.3.3.Categorical variable
+1.design
+```{r}
+#check the correlation for all the categorical variables between the design
+vector.design<-which(colnames(train.comp)=="MSSubClass"|
+                       colnames(train.comp)=="MSZoning"|
+                       colnames(train.comp)=="LotShape"|
+                       colnames(train.comp)=="LandContour"|
+                       colnames(train.comp)=="LotConfig"|
+                       colnames(train.comp)=="BldgType"|
+                       colnames(train.comp)=="HouseStyle"|
+                       colnames(train.comp)=="RoofStyle"|
+                       colnames(train.comp)=="Foundation"|
+                       colnames(train.comp)=="BsmtQual"|
+                       colnames(train.comp)=="BsmtExposure")
+summary(train.comp[,vector.design])
+df<-data.frame(train.comp[,c(80,vector.design)])
+df1 <-lapply(df,as.integer)#transform the categorical data into numeric
+df1<-as.data.frame(df1)
+corr.design <- round(cor(df1), 2)
+library(ggcorrplot)
+ggcorrplot(corr.design,method = "circle",lab=TRUE,lab_size=3)
+
+```
+**Conclusion:The following predictors are important: 8.LotShape, 16.HouseStyle, 21.Roofstyle, 29.Foundtation, 30.BsmtQual, 32.BsmtExposure** 
+
+```{r}
+#plot the boxplot for possible predictor
+vector.design1<-c(8,16,21,29,30,32)
+for (i in vector.design1){
+  p.design<-ggplot(data=train.comp,
+                   aes(x=train.comp[,i],y=SalePrice,fill=train.comp[,i]))+
+                   geom_boxplot()+
+                  labs(y="House Price",x=colnames(train.comp)[i])
+  print (p.design)
+}
+```
+
+2.equipment
+```{r}
+#check the correlation for all the categorical variables between the equipment
+#cor(is.na(house.train[,43]),house.train[,81])#uncorrelated
+
+vector.equipment<-which(colnames(train.comp)=="Heating"|
+                       colnames(train.comp)=="CentralAir"|
+                       colnames(train.comp)=="Electrical")
+df<-data.frame(train.comp[,c(80,vector.equipment)])
+df1 <-lapply(df,as.integer)#transform the categorical data into numeric
+df1<-as.data.frame(df1)
+corr.equipment <- round(cor(df1), 2)
+library(ggcorrplot)
+ggcorrplot(corr.equipment,method = "circle",lab=TRUE,lab_size=3)
+```
+
+```{r}
+#plot the boxplot for possible predictor
+vector.equipment1<-c(41,42)
+for (i in vector.equipment1){
+  p.equipment<-ggplot(data=train.comp, aes(x=train.comp[,i],y=SalePrice,fill=train.comp[,i]))+
+      geom_boxplot()+
+      labs(y="House Price",x=colnames(train.comp)[i])
+  print (p.equipment)
+}
+```
+**Conclusion: We will keep 42.CentralAir,as 41.Electrical is correlated with CentralAir?**
+
+3.layout
+```{r}
+#check the correlation for all the categorical variables between the layout
+vector.layout<-which(colnames(train.comp)=="GarageType"|
+                       #colnames(train.comp)=="Fireplaces"|
+                       #colnames(train.comp)=="GarageCars"|
+                       colnames(train.comp)=="PavedDrive")
+df<-data.frame(train.comp[,c(80,vector.layout)])
+df1 <-lapply(df,as.integer)#transform the categorical data into numeric
+df1<-as.data.frame(df1)
+corr.layout <- round(cor(df1), 2)
+library(ggcorrplot)
+ggcorrplot(corr.layout,method = "circle",lab=TRUE,lab_size=3)
+```
+
+
+```{r}
+#plot the boxplot for possible predictor for layout
+vector.layout1<-c(58,65)
+for (i in vector.layout1){
+  p.layout<-ggplot(data=train.comp, aes(x=train.comp[,i],y=SalePrice,fill=train.comp[,i]))+
+      geom_boxplot()+
+      labs(y="House Price",x=colnames(train.comp)[i])
+  print (p.layout)
+}
+```
+**Conclusion: Keep 57.Fireplaces,59.GarageType,62.GarageCars and 66.PavedDrive(TBD,correlated with GarageType)**
+
+4.location
+
+```{r}
+#check the correlation for all the categorical variables between the location
+vector.location<-which(colnames(train.comp)=="Street"|
+                        colnames(train.comp)=="Alley"|
+                        colnames(train.comp)=="LandSlope"|
+                        colnames(train.comp)=="Neighborhood"|
+                        colnames(train.comp)=="Condition1"|
+                       colnames(train.comp)=="Condition2")
+df2<-data.frame(train.comp[,c(80,vector.location)])
+df3 <-lapply(df2,as.integer)#transform the categorical data into numeric
+df3<-as.data.frame(df3)
+corr.location <- round(cor(df3), 2)
+library(ggcorrplot)
+ggcorrplot(corr.location,method = "circle",lab=TRUE,lab_size = 4)
+```
+
+```{r}
+#plot the boxplot for possible predictor for location
+vector.location1<-c(12)
+for (i in vector.location1){
+  p.layout<-ggplot(data=train.comp, aes(x=train.comp[,i],y=SalePrice,fill=train.comp[,i]))+
+      geom_boxplot()+
+      labs(y="House Price",x=colnames(train.comp)[i])
+  print (p.layout)
+}
+```
+
+**Conclusion:12.Neighborhood looks important** 
+
+5.material
+```{r}
+#check the correlation for all the categorical variables between the material
+vector.material<-which(colnames(train.comp)=="RoofMatl"|
+                        colnames(train.comp)=="Exterior1st"|
+                        colnames(train.comp)=="Exterior2nd"|
+                        colnames(train.comp)=="MasVnrType")
+df4<-data.frame(train.comp[,c(80,vector.material)])
+#df4
+df5 <-lapply(df4,as.integer)#transform the categorical data into numeric
+df5<-as.data.frame(df5)
+corr.material <- round(cor(df5), 2)
+library(ggcorrplot)
+ggcorrplot(corr.material,method = "circle",lab=TRUE,lab_size = 4)
+```
+**Here, we choose nothing as the correlation coefficient is small, by the way, Exterior1st and Exterior2nd(cor=0.85)**
+
+6.quality
+```{r}
+#check the correlation for all the categorical variables between the quality
+vector.quality<-which(colnames(train.comp)=="OverallQual"|
+                        colnames(train.comp)=="OverallCond"|
+                        colnames(train.comp)=="ExterQual"|
+                        colnames(train.comp)=="ExterCond"|
+                        colnames(train.comp)=="BsmtCond"|
+                        colnames(train.comp)=="BsmtFinType1"|
+                        colnames(train.comp)=="BsmtFinType2"|
+                        colnames(train.comp)=="HeatingQC"|
+                        colnames(train.comp)=="KitchenQual"|
+                        colnames(train.comp)=="Functional"|
+                        colnames(train.comp)=="FireplaceQu"|
+                        colnames(train.comp)=="GarageFinish"|
+                        colnames(train.comp)=="GarageQual"|
+                        colnames(train.comp)=="GarageCond"|
+                        colnames(train.comp)=="PoolQC"|
+                        colnames(train.comp)=="Fence"|
+                        colnames(train.comp)=="MiscFeature")
+df.quality<-data.frame(train.comp[,c(80,vector.quality)])
+df.quality1 <-lapply(df.quality,as.integer)#transform the categorical data into numeric
+df.quality1<-as.data.frame(df.quality1)
+corr.quality <- round(cor(df.quality1), 2)
+library(ggcorrplot)
+ggcorrplot(corr.quality,method = "circle",lab=TRUE,lab_size=2)
+```
+
+
+
+```{r}
+#plot the boxplot for possible predictor for quality
+vector.quality1<-c(17,27,40,53,57,60)
+for (i in vector.quality1){
+  p.layout<-ggplot(data=train.comp, aes(x=train.comp[,i],y=SalePrice,fill=train.comp[,i]))+
+      geom_boxplot()+
+      labs(y="House Price",x=colnames(train.comp)[i])
+  print (p.layout)
+}
+```
+
+**Conclusion: 17.OverallQual is a very important predictor. For the other 27.ExterQual,40.HeatingQC,53.KitchenQual,57.FireplaceQu,60.GarageFinish, they are important, but highly correlated with others, TBD**
+
+7.sale
+```{r}
+#check the correlation for all the categorical variables between the sale
+vector.sale<-which(colnames(train.comp)=="MoSold"|
+                        colnames(train.comp)=="YrSold"|
+                        colnames(train.comp)=="SaleType"|
+                        colnames(train.comp)=="SaleCondition")
+df.sale<-data.frame(train.comp[,c(80,vector.sale)])
+df.sale1 <-lapply(df.sale,as.integer)#transform the categorical data into numeric
+df.sale1<-as.data.frame(df.sale1)
+corr.sale <- round(cor(df.sale1), 2)
+library(ggcorrplot)
+ggcorrplot(corr.sale,method = "circle",lab=TRUE)
+```
+
+```{r}
+#plot the boxplot for possible predictor for sale
+vector.sale1<-c(79)
+for (i in vector.sale1){
+  p.layout<-ggplot(data=train.comp, aes(x=train.comp[,i],y=SalePrice,fill=train.comp[,i]))+
+      geom_boxplot()+
+      labs(y="House Price",x=colnames(train.comp)[i])
+  print (p.layout)
+}
+```
+**Conclusion:79.SaleCondition is important**
+
+#2. Build the model 
+##2.1.Model:Linear Regression
+Here we have two selections of variables, one is with the most important 30 predictors, the other is with 17 predictors. 
+
+###2.1.1.Building the Model
+Model1:With 30 predictors
+```{r}
+train.comp.p1<-train.comp[,c(4,5,8,12,16,17,19,21,26,27,29,30,32,38,40,41,42,46,50,53,54,56,57,58,60,61,65,66,67,79,80)]
+#summary(train.comp.partial)
+test.comp.p1<-test.comp[,c(1,4,5,8,12,16,17,19,21,26,27,29,30,32,38,40,41,42,46,50,53,54,56,57,58,60,61,65,66,67,79,80)]
+#with all 30 important predictors with log tranformation of saleprice
+fit.lm1<-lm(log(SalePrice)~.,data=train.comp.p1)
+fit.lm1.step<-step(fit.lm1,direction = c("both"),trace=0)
+summary(fit.lm1.step)
+```
+
+Model2: With 17 predictors
+```{r}
+train.comp.p2<-train.comp[,c(5,8,16,17,19,21,26,30,38,41,46,56,58,61,66,67,79,80)]
+#summary(train.comp.partial)
+test.comp.p2<-test.comp[,c(1,5,8,16,17,19,21,26,30,38,41,46,56,58,61,66,67,79,80)]
+#with all 17 most important predictors with log tranformation of saleprice
+fit.lm2<-lm(log(SalePrice)~.,data=train.comp.p2)
+fit.lm2.step<-step(fit.lm2,direction = c("both"),trace=0)
+summary(fit.lm2.step)
+```
+**From the above, we can find that second model is better, as it has fewer predictors with only a fewer decrease of R-squared. Therefore, I will choose this model.**
+
+###2.1.2.Cross Validation to calculate the MSE
+
+```{r}
+set.seed(1)
+k = 10 # 5-fold cross-validation
+folds = sample(1:k, nrow(train.comp.p2), replace = T)
+test_error_lm = NULL
+for (i in 1:k) {
+fit.lm.cv<-lm(log(SalePrice)~.,data=train.comp.p2[folds!=i,])
+fit.lm.step.cv<-step(fit.lm.cv,direction = c("both"),trace=0)
+pred_lm.cv<-exp(predict(fit.lm.step.cv,train.comp.p2[folds==i,],type="response"))
+test_error_lm[i] = mean((train.comp.p2$SalePrice[folds == i] - pred_lm.cv)^2)
+}
+mean(test_error_lm)
+```
+
+###2.1.3.Prediction 
+```{r}
+test_SalePrice<-exp(predict(fit.lm2.step,test.comp.p2))
+summary(test_SalePrice)
+submit <- data.frame(Id = test.comp.p2$Id, SalePrice = round(test_SalePrice,0))
+# Create submission file 
+write.csv(submit, "E:/Loyola/Fall 2018/STAT 388 001 Predictive Analytics/Project/prediction/submissionfile.fit.lm2.csv", row.names = FALSE)
+```
+**The Adjusted R-squared is 0.851 ,The MSE is 2.41e+09, and the score in kaggle is 0.15111.**
+
+##2.2.Model:GAM model 
+###2.2.1.Building the Model 
+**Using 17 important predictors to build the GAM model**
+```{r}
+library(mgcv)
+fit.gam<- gam(data = train.comp.p2,log(SalePrice) ~ s(LotArea) + LotShape+HouseStyle+OverallQual+s(YearBuilt)+RoofStyle+s(MasVnrArea)+BsmtQual+s(TotalBsmtSF)+CentralAir+s(GrLivArea)+Fireplaces+GarageType+GarageCars+s(WoodDeckSF)+s(OpenPorchSF)+SaleCondition, method = "REML", select = TRUE)
+summary(fit.gam)
+```
+
+###2.2.2.Cross Validation to calculate the MSE
+```{r}
+set.seed(1)
+k = 10 # 5-fold cross-validation
+folds = sample(1:k, nrow(train.comp.p2), replace = T)
+test_error_gam = NULL
+for (i in 1:k) {
+fit.gam.cv<- gam(data = train.comp.p2[folds!=i,],log(SalePrice) ~ s(LotArea) + LotShape+HouseStyle+OverallQual+s(YearBuilt)+RoofStyle+s(MasVnrArea)+BsmtQual+s(TotalBsmtSF)+CentralAir+s(GrLivArea)+Fireplaces+GarageType+GarageCars+s(WoodDeckSF)+s(OpenPorchSF)+SaleCondition, method = "REML", select = TRUE)
+pred_gam.cv<-exp(predict(fit.gam.cv,train.comp.p2[folds==i,],type="response"))
+test_error_gam[i] = mean((train.comp.p2$SalePrice[folds == i] - pred_gam.cv)^2)
+}
+mean(test_error_gam)
+```
+
+###2.2.3.Prediction
+```{r}
+test_SalePrice<-exp(predict(fit.gam,test.comp.p2))
+summary(test_SalePrice)
+submit <- data.frame(Id = test.comp.p2$Id, SalePrice = round(test_SalePrice,0))
+# Create submission file 
+write.csv(submit, "E:/Loyola/Fall 2018/STAT 388 001 Predictive Analytics/Project/prediction/submissionfile.fit.gam.csv", row.names = FALSE)
+```
+**The Adjusted R-squared is 0.882,The MSE is 1.23e+09, and the score in kaggle is 0.14583**
+
+##2.3.Model: Random forest with orginal dataset 
+###2.3.1.Building the Model
+```{r}
+#random forest with log of Saleprice
+set.seed(1)
+library(randomForest)
+tree.rf1<-randomForest(log(SalePrice)~.,data=train.comp[,-1],mtry=26,ntree=1000,importance=TRUE)
+plot(tree.rf1)
+importance(tree.rf1)
+varImpPlot(tree.rf1)
+```
+
+###2.3.2.Cross Validation to calculate the MSE
+```{r}
+set.seed(1)
+k = 10 # 5-fold cross-validation
+folds = sample(1:k, nrow(train.comp), replace = T)
+test_error_rf = NULL
+for (i in 1:k) {
+set.seed(123456789) 
+tree.rf.cv<-randomForest(log(SalePrice)~.,data=train.comp[,-1][folds!=i,],mtry=26,ntree=1000,importance=TRUE)
+pred_rf.cv<-exp(predict(tree.rf.cv,train.comp[folds==i,],type="response"))
+test_error_rf[i] = mean((train.comp$SalePrice[folds==i]-pred_rf.cv)^2)
+}
+mean(test_error_rf)
+```
+
+###2.3.3.Prediction
+```{r}
+test_SalePrice<-exp(predict(tree.rf1,newdata=test.comp))
+summary(test_SalePrice)
+# Create submission file 
+submit <- data.frame(Id = test.comp$Id, SalePrice = round(test_SalePrice,0))
+write.csv(submit, "E:/Loyola/Fall 2018/STAT 388 001 Predictive Analytics/Project/prediction/submissionfile.fit.rf1.csv", row.names = FALSE)
+```
+**The MSE is 827577893, and the score in kaggle is 0.14974**
+
+##2.4.Model:Boosting
+###2.4.1.Building the Model
+```{r}
+library(gbm)
+fit.boost<-gbm(log(SalePrice)~., data=train.comp[,-1], distribution="gaussian",n.trees=5000,interaction.depth=4,shrinkage=0.01)
+summary(fit.boost)
+```
+###2.4.2.Cross Validation to calculate the MSE
+
+```{r}
+set.seed(1)
+k = 10 # 5-fold cross-validation
+folds = sample(1:k, nrow(train.comp), replace = T)
+test_error_boosting = NULL
+for (i in 1:k) {
+set.seed(123456789) 
+tree.boosting.cv<-gbm(log(SalePrice)~.,data=train.comp[,-1][folds!=i,],distribution="gaussian",n.trees=5000,interaction.depth=4,shrinkage=0.01)
+pred_boosting.cv<-exp(predict(tree.boosting.cv,train.comp[,-1][folds==i,],n.trees=5000,type="response"))
+test_error_boosting[i] = mean((train.comp[,-1]$SalePrice[folds==i]-pred_boosting.cv)^2)
+}
+mean(test_error_boosting)
+```
+
+###2.4.3.Prediction
+```{r}
+test_SalePrice<-exp(predict(fit.boost,newdata=test.comp,n.trees=5000))
+summary(test_SalePrice)
+# Create submission file 
+submit <- data.frame(Id = test.comp$Id, SalePrice = round(test_SalePrice,0))
+write.csv(submit, "E:/Loyola/Fall 2018/STAT 388 001 Predictive Analytics/Project/prediction/submissionfile.fit.boosting.csv", row.names = FALSE)
+```
+**The MSE is 2988325798, and the score in kaggle is 0.12825**
+
+#3.Conclusion 
+##3.1.Recap 
+In this project, we first cleaned the data, including transfering the type of variables, checking the missing values as well as imputing those truly missing values. Here we found those variables (MSZoning,LotFrontage,Utilities,Exterior1st, Exterior2nd,MasVnrType, BsmtFinSF1,BsmtFinSF2,BsmtUnfSF,Electrical,BsmtFullBath,BsmtHalfBath,Functional,GarageCars,KitchenQual,SaleType.) are missing. But for Utilities,only 1 obs is NoSeWa, while 2918 are AllPub, so we dropped this variable in the following analysis. For the missing value, we imputed them with the median value(those variables with a few NA) and the prediction from linear model(numerical data). 
+
+Meanwhile,we analyzed all the variables before buiding the linear regression and GAM.Firstly, we transformed the response variables with log function, with the purpose to have a normal distribution.Secondly,for the continous variables, we made the correlation matrix plot to find out the most important variables to predict the SalePrice. In this step, we choosed the variables with correlation coefficient higher than 0.2. Among those multicorrelated variables, we choosed the one with highest correlated with SalePrice. Thus, we have the following variables:LotArea, YearBuilt, MasVnrArea,TotalBsmtSf, GrLivArea,Fireplaces, GarageCars, WoodDeckSF and OpenPorchSF. Thirdly, we grouped the categorical variables  (such as design,location, layout,quality,equipment,sale, time) and made the boxplot to find out the possible relationship with response variables. In this way, we have the following variables that might be important:LotShape,HouseStyle,OverallQual, RoofStyle, BsmtQual, CentralAir,GarageType and SaleCondition.
+
+Besides,we applied the random forest and boosting with all the 78 variables. For each model, we calculated the MSE with 10-fold cross validation and predicted the SalePrice of test dataset. 
+
+```{r}
+test_error = data.frame(
+        Model = c("Linear Regression","GAM","Random Forest", "Boosting"), 
+        Test_Error = c(mean(test_error_lm), mean(test_error_gam),mean(test_error_rf), mean(test_error_boosting)),
+        kaggle_score=c(0.15111,0.14583,0.14974,0.12825)) 
+test_error[order(test_error$kaggle_score),]
+```
+**According to the above result, the lowest MSE is the Random forest, but this is the mean error based on the train dataset.When it was tested in the test dataset, the best model is Boosting. In summary,we can find the best model here is the Boosting. **
+
+```{r}
+#summary(house$SalePrice)
+pre.sum<- data.frame(
+         Model = c("train dataset","Linear Regression","GAM","Random Forest", "Boosting"),              min=c(34900,44237,45998,63439,41197),
+         Q1= c(129975,126901,127418,131310,128435),
+         median=c(163000,158662,157963,156562,158509),
+         mean=c(180921,177676,177902,175547,179469),
+         Q3=c(214000,206681,207892,203685,209840),
+         max=c(755000,960675,586572,465873,538248))
+pre.sum   
+```
+**From the prediction result, we can find the model predict very well for the Saleprice between Q1 and Q3, but did not preform well for the lowest and the most expensive houses.**
+
+
+
+##3.2.Possible improvement: 
+Because of limited time, I didn't try the following ideas that I think they might improve the model. 
+
+###3.2.1.Combine variables 
+Here there are several variables are highly correlated, we can create variables that sum up the values. For example. "FlrSF=X1stFlrSF+X2ndFlrSF". 
+
+###3.2.2.Data transformation 
+Data transformation predominantly deals with normalizing also known as scaling data, handling skewness and aggregation of attributes.This is because if we want to use the Linear Regression model, one of the important assumption is Homoscedasticity, which could be ensured by making sure that Y follows a Gaussian distribution.Therefore we need transform data to make it fit a Gaussian distribution. Here we can find some of the variables are seriouly skewed(the skewness of variable is larger than 1 or less than -1, which means it is serious skewed).
+
+```{r}
+library(moments)
+vector6<-c(4,5,19,20,26,34,36,37,38,43:52,54,56,59,61,62,66:71,75,81)
+vector7<-NULL
+for (i in vector6){
+  if (skewness(house.comp[,i])>=1|skewness(house.comp[,81])<=-1)
+  print (i)
+}
+```
+**Therefore, we should transform LotFrontage,LotArea,MasVnrArea,BsmtFinSF1,BsmtFinSF2, TotalBsmtSF, X1stFlrSF, LowQualFinSF,GrLivArea, BsmtHalfBath,KitchenAbvGr,WoodDeckSF,OpenPorchSF,EnclosedPorch,X3SsnPorch,ScreenPorch,PoolArea and MiscVal.For highly skewed numeric variables with lots of 0,we can transform them with log(x + 1).**
+
+**Besides, here the range of the contious data are quite different, so it is better to scale the data before building the model.** 
+
+#4.Reference
+1).[https://www.kaggle.com/notaapple/detailed-exploratory-data-analysis-using-r]("https://www.kaggle.com/notaapple/detailed-exploratory-data-analysis-using-r") 
+
+2).[https://www.kaggle.com/pmarcelino/comprehensive-data-exploration-with-python](https://www.kaggle.com/pmarcelino/comprehensive-data-exploration-with-python) 
+
+3).[https://www.kaggle.com/ozagordi/a-clear-example-of-overfitting](https://www.kaggle.com/ozagordi/a-clear-example-of-overfitting) 
+
+4).[https://www.kaggle.com/jimthompson/ensemble-model-stacked-model-example](https://www.kaggle.com/jimthompson/ensemble-model-stacked-model-example) 
+
+5).[https://www.kaggle.com/erikbruin/house-prices-lasso-xgboost-and-a-detailed-eda](https://www.kaggle.com/erikbruin/house-prices-lasso-xgboost-and-a-detailed-eda)
